@@ -6,7 +6,6 @@ import math
 import time
 import queue
 from collections import deque
-from typing import NoReturn
 
 import webrtcvad
 
@@ -17,16 +16,20 @@ from .queues import (
     asr_queue,
     ui_queue,
     batcher_queue,
+    stop_event,
 )
 from .utils import frame_generator
 from .utterance import finalize_and_enqueue_utterance
 from .asr import get_asr_engine
 
 
-def forward_to_processing() -> NoReturn:
+def forward_to_processing() -> None:
     """Forward audio chunks from record queue to processing queue."""
-    while True:
-        chunk_bytes, ts = record_queue.get()
+    while not stop_event.is_set():
+        try:
+            chunk_bytes, ts = record_queue.get(timeout=0.1)
+        except queue.Empty:
+            continue
         # Forward to processing queue
         try:
             processing_queue.put_nowait((chunk_bytes, ts))
@@ -38,7 +41,7 @@ def forward_to_processing() -> NoReturn:
                 pass
 
 
-def processing_worker() -> NoReturn:
+def processing_worker() -> None:
     """VAD-based utterance assembly with pre-roll and merge wait."""
     vad = webrtcvad.Vad(int(config.VAD_AGGRESSIVENESS))
     pre_roll_buf = deque(
@@ -52,8 +55,11 @@ def processing_worker() -> NoReturn:
     accumulated_ms = 0
     frame_duration_ms = config.VAD_FRAME_MS
 
-    while True:
-        chunk_bytes, chunk_ts = processing_queue.get()  # blocking
+    while not stop_event.is_set():
+        try:
+            chunk_bytes, chunk_ts = processing_queue.get(timeout=0.1)
+        except queue.Empty:
+            continue
         frames = list(frame_generator(frame_duration_ms, chunk_bytes, config.RATE))
         if not frames:
             continue
@@ -132,7 +138,10 @@ def processing_worker() -> NoReturn:
                                 )
                                 got_more_speech = False
                                 # Transient local buffer of frames consumed during wait
-                                while time.time() < wait_deadline:
+                                while (
+                                    time.time() < wait_deadline
+                                    and not stop_event.is_set()
+                                ):
                                     try:
                                         nxt_chunk_bytes, nxt_chunk_ts = (
                                             processing_queue.get(timeout=0.05)
@@ -186,13 +195,16 @@ def processing_worker() -> NoReturn:
                                     accumulated_ms = 0
 
 
-def asr_worker() -> NoReturn:
+def asr_worker() -> None:
     """ASR worker that transcribes utterances using NeMo Parakeet model."""
     # Initialize ASR engine (loads model on first call)
     asr_engine = get_asr_engine()
 
-    while True:
-        utter_bytes, start_ts, end_ts = asr_queue.get()
+    while not stop_event.is_set():
+        try:
+            utter_bytes, start_ts, end_ts = asr_queue.get(timeout=0.1)
+        except queue.Empty:
+            continue
         duration_s = end_ts - start_ts if (start_ts and end_ts) else 0.0
 
         try:

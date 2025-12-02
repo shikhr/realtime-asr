@@ -16,10 +16,8 @@ from .queues import (
     ui_queue,
     batcher_queue,
     llm_response_queue,
-    record_queue,
-    processing_queue,
-    asr_queue,
-    llm_queue,
+    stop_event,
+    clear_all_queues,
 )
 from .workers import forward_to_processing, processing_worker, asr_worker
 from .llm import transcript_batcher, llm_worker
@@ -47,13 +45,9 @@ class STTApp:
         self.transcripts.clear()
         self.llm_responses.clear()
 
-        # Clear queues
-        for q in [ui_queue, batcher_queue, llm_response_queue]:
-            while not q.empty():
-                try:
-                    q.get_nowait()
-                except Exception:
-                    break
+        # Clear stop event and all queues
+        stop_event.clear()
+        clear_all_queues()
 
         # Create input stream
         self.input_stream = create_input_stream()
@@ -95,27 +89,22 @@ class STTApp:
 
         self.is_recording = False
 
+        # Signal workers to stop
+        stop_event.set()
+
+        # Stop audio stream
         if self.input_stream:
             self.input_stream.stop_stream()
             self.input_stream.close()
             self.input_stream = None
 
+        # Wait for threads to finish (with timeout)
+        for t in self.threads:
+            t.join(timeout=0.5)
+        self.threads.clear()
+
         # Clear all queues
-        all_queues = [
-            record_queue,
-            processing_queue,
-            asr_queue,
-            ui_queue,
-            batcher_queue,
-            llm_queue,
-            llm_response_queue,
-        ]
-        for q in all_queues:
-            while not q.empty():
-                try:
-                    q.get_nowait()
-                except Exception:
-                    break
+        clear_all_queues()
 
         return "⏹️ Recording stopped."
 

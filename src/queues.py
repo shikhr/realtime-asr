@@ -3,7 +3,11 @@ Shared queues for inter-thread communication.
 """
 
 import queue
+import threading
 from . import config
+
+# Stop event for signaling workers to terminate
+stop_event = threading.Event()
 
 # Filled by callback: (bytes, ts)
 record_queue: queue.Queue[tuple[bytes, float]] = queue.Queue(
@@ -31,3 +35,22 @@ llm_queue: queue.Queue[list[str]] = queue.Queue(maxsize=50)
 
 # LLM responses for UI
 llm_response_queue: queue.Queue[str] = queue.Queue(maxsize=50)
+
+
+def clear_all_queues() -> None:
+    """Clear all queues."""
+    all_queues = [
+        record_queue,
+        processing_queue,
+        asr_queue,
+        ui_queue,
+        batcher_queue,
+        llm_queue,
+        llm_response_queue,
+    ]
+    for q in all_queues:
+        while not q.empty():
+            try:
+                q.get_nowait()
+            except Exception:
+                break

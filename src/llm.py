@@ -4,13 +4,12 @@ LLM integration module with transcript batching.
 
 import time
 from datetime import datetime
-from typing import NoReturn
 
 from . import config
-from .queues import batcher_queue, llm_queue, llm_response_queue
+from .queues import batcher_queue, llm_queue, llm_response_queue, stop_event
 
 
-def transcript_batcher() -> NoReturn:
+def transcript_batcher() -> None:
     """
     Batch transcripts and send to LLM after silence timeout.
 
@@ -21,7 +20,7 @@ def transcript_batcher() -> NoReturn:
     last_transcript_time: float | None = None
     silence_timeout_s = config.LLM_BATCH_SILENCE_MS / 1000.0
 
-    while True:
+    while not stop_event.is_set():
         try:
             # Check for new transcripts with short timeout
             text = batcher_queue.get(timeout=0.1)
@@ -45,12 +44,15 @@ def transcript_batcher() -> NoReturn:
                 last_transcript_time = None
 
 
-def llm_worker() -> NoReturn:
+def llm_worker() -> None:
     """
     Process batched transcripts through LLM (dummy implementation).
     """
-    while True:
-        batch = llm_queue.get()  # blocking
+    while not stop_event.is_set():
+        try:
+            batch = llm_queue.get(timeout=0.1)
+        except Exception:
+            continue
 
         # Combine transcripts into a single input
         combined_text = " ".join(batch)
