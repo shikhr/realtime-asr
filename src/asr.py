@@ -44,10 +44,11 @@ class ASREngine:
         # Transcribe using NeMo with inference mode for speed
         with torch.inference_mode():
             output = self.model.transcribe([audio_np])
-
         # Extract text from output
         if hasattr(output[0], "text"):
             return output[0].text
+        elif isinstance(output[0], list):
+            return " ".join(output[0])
         else:
             return str(output[0])
 

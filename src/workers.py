@@ -6,7 +6,6 @@ import math
 import time
 import queue
 from collections import deque
-from datetime import datetime
 from typing import NoReturn
 
 import webrtcvad
@@ -16,6 +15,8 @@ from .queues import (
     record_queue,
     processing_queue,
     asr_queue,
+    ui_queue,
+    batcher_queue,
 )
 from .utils import frame_generator
 from .utterance import finalize_and_enqueue_utterance
@@ -178,9 +179,6 @@ def processing_worker() -> NoReturn:
                                     continue
                                 else:
                                     # Drop short utterance (no additional speech)
-                                    print(
-                                        f"Ignored short utterance {accumulated_ms:.0f} ms (no speech within {config.MERGE_WAIT_MS} ms)"
-                                    )
                                     collecting = False
                                     utterance_bytes = bytearray()
                                     utter_start_ts = None
@@ -200,7 +198,15 @@ def asr_worker() -> NoReturn:
         try:
             # Transcribe using NeMo
             text = asr_engine.transcribe_bytes(utter_bytes)
-            timestamp_str = datetime.now().strftime("%H:%M:%S")
-            print(f"\n[{timestamp_str}] ({duration_s:.2f}s): {text}")
-        except Exception as e:
-            print(f"ASR error: {e}")
+            # Send to UI queue
+            try:
+                ui_queue.put_nowait((text, duration_s))
+            except Exception:
+                pass  # UI queue full, drop update
+            # Send to batcher queue for LLM batching
+            try:
+                batcher_queue.put_nowait(text)
+            except Exception:
+                pass  # Batcher queue full, drop
+        except Exception:
+            pass  # Silently handle ASR errors

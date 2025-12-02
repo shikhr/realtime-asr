@@ -44,3 +44,8 @@ PRE_ROLL_MS = 200  # prepend ~200 ms before VAD start to avoid chopping
 RECORD_QUEUE_MAX = 800
 PROCESSING_QUEUE_MAX = 800
 ASR_QUEUE_MAX = 50
+
+# -------------------------
+# LLM BATCHING
+# -------------------------
+LLM_BATCH_SILENCE_MS = 1500  # batch transcripts after 1.5s of silence
